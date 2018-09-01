@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS user_static_var;
+
+CREATE TABLE user_static_var(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, 
+  c_name VARCHAR2(50), 
+  e_name VARCHAR2(50) NOT NULL UNIQUE, 
+  code VARCHAR2(100) NOT NULL);

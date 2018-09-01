@@ -1,0 +1,78 @@
+from ctypes import *
+import os
+
+#从系统获得DLL文件
+# os.chdir("C:\\Users\\HYG\\Desktop\\UniEPA")
+# libc = CDLL("UniSup.dll")
+
+#定义自定义变量父类
+#父类包含用户定义参数，以及初始化时的hash值
+class User_var():
+	def __init__(self, id, c_name, e_name, code):
+		self.id = id
+		self.c_name = c_name
+		self.e_name = e_name
+		self.code = code
+		#生产方法
+		#self.hash = libc.UniGetHash(self.code)
+		#测试方法
+		self.hash = self.id
+		#生产方法
+		#self.value = libc.UniGetValue(c_ulong(self.hash))
+		#测试方法
+		self.value = self.id
+
+	def to_string(self):
+		return 'id=' + str(self.id) + ' c_name=' + self.c_name + ' e_name=' + self.e_name + ' code=' + self.code
+
+#定义输入参数类
+class User_var_input(User_var):
+	def __init__(self, id, c_name, e_name, code):
+		super().__init__(id, c_name, e_name, code)
+
+	#重置value方法，可被定时器调用
+	def set_value(self):
+		#生产方法
+		#self.value = libc.UniGetValue(c_ulong(self.hash))
+		#测试方法
+		print('获取变量:' + self.c_name + ' 值' + self.value)
+		self.value = self.id
+
+#定义输出参数类
+class User_var_output(User_var):
+	def __init__(self, id, c_name, e_name, code):
+		super().__init__(id, c_name, e_name, code)
+
+	#将现有值写入DLL，可被触发调用
+	def put_value(self):
+		#生产方法
+		#libc.UniSetValue(c_ulong(self.get_hash()),c_float(self.value))
+		#测试方法
+		print('写入变量:' + self.c_name + ' 值:' + self.value)
+
+
+
+
+#定义自定义工况
+class User_condition():
+	def __init__(self, id, c_name, is_static):
+		self.id = id
+		self.c_name = c_name
+		self.is_static = is_static
+
+	#工况执行
+	def run(self):
+		print('工况' + self.c_name + ' 正在执行！')
+
+#定义工况条目
+class User_condition_entry():
+	def __init__(self, id, con_id, con_name, seq, duration, if_code, code):
+		self.id = id
+		self.con_id = con_id
+		self.seq = seq
+		self.duration = duration
+		self.if_code = if_code
+		self.code = code
+
+	def run(self):
+		print('工况' + self.con_name + ' 下的条目' + self.seq + ' 正在执行！')

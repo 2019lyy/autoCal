@@ -1,0 +1,54 @@
+import sqlite3
+import json
+
+from .model import *
+from flask import Blueprint
+from .db import get_db
+
+#存储用户自定义输入变量
+static_user_var_input = {}
+
+#存储用户自定义输出变量
+static_user_var_output = {}
+
+#存储工况信息的字典
+static_user_condition = {}
+
+bp = Blueprint('server', __name__, url_prefix='/server')
+
+#从数据库加载用户变量进入内存
+@bp.route('/reload/var')
+def load_user_var():
+	db = get_db()
+	print('输入变量清空')
+	static_user_var_input = {}
+	print('输入变量加载中')
+	input_rows = db.execute('SELECT * from user_static_var WHERE is_input = 1').fetchall()
+	for temp in input_rows:
+		static_user_var_input[temp.get("code", "")] = User_var_input(temp.get("id", ""), temp.get("c_name", ""), temp.get("e_name", ""), temp.get("code", ""))
+	print('输入变量加载完成')
+	for key in static_user_var_input:
+		print(static_user_var_input[key].to_string())
+
+	print('输出变量清空')
+	static_user_var_output = {}
+	print('输出变量加载中')
+	output_rows = db.execute('SELECT * from user_static_var WHERE is_input = 0').fetchall()
+	for temp in output_rows:
+		static_user_var_output[temp.get("code", "")] = User_var_output(temp.get("id", ""), temp.get("c_name", ""), temp.get("e_name", ""), temp.get("code", ""))
+	print('输输出变量加载完成')
+	for key in static_user_var_output:
+		print(static_user_var_output[key].to_string())
+
+	return json.dumps({'msg' : 'ok'})
+
+#从数据库加载用户定义工况，进入内存
+@bp.route('/reload/condition')
+def load_user_condition():
+	print('工况信息初始化')
+	static_user_condition = {}
+	print('工况信息加载中')
+	#TODO
+	print('工况信息加载完成')
+
+	return json.dumps({'msg' : 'ok'})

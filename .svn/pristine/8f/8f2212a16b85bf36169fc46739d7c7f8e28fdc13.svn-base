@@ -1,0 +1,211 @@
+#用户进行系统配置接口
+#系统配置的持久化保存
+import functools
+import json
+
+from flask import (
+	Blueprint, g, render_template, url_for, request
+)
+
+from .db import get_db
+
+from .utils import list_to_arr
+
+bp = Blueprint('manager', __name__, url_prefix='/manager')
+
+#查询所有数据库中保存的用户自定义变量的接口
+@bp.route('/getVar')
+def getVar():
+	db = get_db()
+	result = db.execute('SELECT * from user_static_var').fetchall()
+	return json.dumps(result)
+
+#获取一个特定的变量信息
+@bp.route('/getVar/<id>')
+def getVarById(id):
+	db = get_db()
+	result = db.execute('SELECT * from user_static_var WHERE id = ' + id).fetchone()
+	return json.dumps(result)
+
+#获取输出变量
+@bp.route('/getOutputVar')
+def getOutputVar():
+	db = get_db()
+	result = db.execute('SELECT * from user_static_var WHERE is_input = 0').fetchall()
+	return json.dumps(result)
+
+#新增自定义变量，保证code唯一
+@bp.route('/createVar', methods=['POST'])
+def createVar():
+	db = get_db()
+	rows = db.execute('SELECT * from user_static_var WHERE code = \'' + request.form['code'] + '\'').fetchone()
+	if (rows):
+		return json.dumps({'msg' : 'dup'})
+	else:
+		db.execute(
+			'INSERT INTO user_static_var (c_name, e_name, code, is_input) VALUES (?, ?, ?, ?)',
+			(request.form['c_name'], request.form['e_name'], request.form['code'], request.form['is_input'])
+		)
+		db.commit()
+		return json.dumps({'msg' : 'ok'})
+
+#变量修改方法POST
+@bp.route('/modifyVar', methods=['POST'])
+def modifyVar():
+	db = get_db()
+	#仍然需要确保code的唯一性
+	rows = db.execute('SELECT * from user_static_var WHERE code = \'' + request.form['code'] + '\'').fetchone()
+	if (rows):
+		return json.dumps({'msg' : 'dup'})
+	else :
+		db.execute(
+			'UPDATE user_static_var SET c_name = ?, e_name = ?, code = ?, is_input = ? WHERE id = ?',
+			(request.form['c_name'], request.form['e_name'], request.form['code'], request.form['is_input'], request.form['id'])
+		)
+		db.commit()
+		return json.dumps({'msg' : 'ok'})
+
+#删除变量
+@bp.route('/deleteVar', methods=['GET'])
+def deleteVar():
+	db = get_db()
+	var_id = request.args.to_dict().get('id', '')
+	if (var_id):
+		db.execute(
+			'DELETE FROM user_static_var WHERE id = ' + var_id
+		)
+		db.commit()
+		return json.dumps({'msg' : 'ok'})
+	return json.dumps({'msg' : 'err'})
+
+#查询所有数据库中保存的工况
+@bp.route('/getCondition')
+def getCondition():
+	db = get_db()
+	result = db.execute('SELECT * from user_condition').fetchall()
+	return json.dumps(result)
+
+#获取特定工况
+@bp.route('/getCondition/<id>')
+def getConditionById(id):
+	db = get_db()
+	con_result = db.execute('SELECT * from user_condition WHERE id = ' + id).fetchone()
+	var_result = db.execute('SELECT * from user_var_condition WHERE con_id = ' + id).fetchall()
+	result = {
+		'con' : con_result,
+		'var' : var_result
+	}
+	return json.dumps(result)
+
+#删除工况
+@bp.route('/delCondition/<id>')
+def delConditionById(id):
+	db = get_db()
+	db.execute('DELETE FROM user_condition WHERE id = ' + id)
+	db.execute('DELETE FROM user_condition_entry WHERE con_id = ' + id)
+	db.execute('DELETE FROM user_var_entry WHERE con_id = ' + id)
+	db.commit()
+	return json.dumps({'msg' : 'ok'})
+
+#新增工况
+@bp.route('/createCondition', methods=['POST'])
+def createCondition():
+	db = get_db()
+	db.execute(
+		'INSERT INTO user_condition (c_name) VALUES (?)',
+		(request.form['c_name'],)
+	)
+	db.commit()
+	return json.dumps({'msg' : 'ok'})
+		
+
+#修改工况
+@bp.route('/modifyCondition', methods=['POST'])
+def modifyCondition():
+	db = get_db()
+	db.execute('DELETE FROM user_var_condition WHERE con_id = ' + request.form['id'])
+	db.execute('DELETE FROM user_condition_entry WHERE con_id = ' + request.form['id'])
+	db.execute('DELETE FROM user_var_entry WHERE con_id = ' + request.form['id'])
+	db.commit()
+	data = request.form
+	for key in data:
+		if (key != 'id' and key != 'c_name'):
+			db.execute(
+				'INSERT INTO user_var_condition VALUES(?, ?)',
+				(request.form['id'], key)
+			)
+	db.execute(
+		'UPDATE user_condition SET c_name = ? WHERE id = ?',
+		(request.form['c_name'], request.form['id'])
+	)
+	db.commit()
+	return json.dumps({'msg' : 'ok'})
+
+#根据工况id，加载所有条目数据
+@bp.route('/getEntries/<con_id>')
+def getEntries(con_id):
+	db = get_db()
+	result = db.execute('SELECT * from user_condition_entry WHERE con_id = ' + con_id + ' ORDER BY seq ASC').fetchall()
+	return json.dumps(result)
+
+#根据工况id,加载变量运算表达式
+@bp.route('/getVarEntries/<con_id>')
+def getVarEntries(con_id):
+	db = get_db()
+	result = db.execute('SELECT * from user_var_entry WHERE con_id = ' + con_id).fetchall()
+	return json.dumps(result)
+
+#保存工况id下的条目信息
+@bp.route('/saveEntries/<con_id>', methods=['POST'])
+def saveEntries(con_id):
+	db = get_db()
+	#删除条目表记录
+	db.execute(
+		'DELETE FROM user_condition_entry WHERE con_id = ' + con_id
+	)
+	#删除条目变量表记录
+	db.execute(
+		'DELETE FROM user_var_entry WHERE con_id = ' + con_id
+	)
+	db.commit()
+	#分析数据，插入记录
+	#定义变量，记录当前插入entry的seq
+	s = 0
+	current_entry_id = 0
+	for key in request.form:
+		param_arr = list_to_arr(key)
+		#为当前工况的第一条数据，插入工况条目表记录(对每个条目只执行一次)
+		if (int(param_arr[0]) == s):
+			db.execute(
+				'INSERT INTO user_condition_entry (con_id, seq, duration, code) VALUES(' + con_id + ', -1, 0, \'\')'
+			)
+			db.commit()
+			#获取当前entry的id
+			current_entry_id = db.execute('SELECT * FROM user_condition_entry WHERE con_id = ' + con_id + ' AND seq = -1').fetchone().get('id')
+			#手动更新一下条目的seq
+			db.execute(
+				'UPDATE user_condition_entry set seq = ? WHERE id = ?',
+				(param_arr[0], current_entry_id)
+			)
+			db.commit()
+			s = s + 1
+		#循环执行工况中的数据(每个语句都要提交)
+		if (param_arr[1].isdigit()):
+			#数字则意味着是计算条目，则为计算表做插入语句
+			db.execute(
+				'INSERT INTO user_var_entry (con_id, entry_id, var_id, code) VALUES(' + con_id + ', ' + str(current_entry_id) + ',' + param_arr[1] + ', \'' + request.form[key] + '\')'
+			)
+		else:
+			#非数字意味着是工况条目，为工况表做更新语句
+			if (param_arr[1] == 'code'):
+				#将原有字符串中的单引号替换为双单引号，为执行SQL操作进行准备
+				insert_value = request.form[key].replace("'", "''");
+				#左右添加单引号，想SQL提示记录为字符串
+				insert_value = '\'' + insert_value + '\''
+			else:
+				insert_value = request.form[key]
+			db.execute(
+				'UPDATE user_condition_entry SET ' + param_arr[1] + ' = ' + insert_value + ' WHERE id = ' + str(current_entry_id)
+			)
+		db.commit()
+	return json.dumps({'msg' : 'ok'})

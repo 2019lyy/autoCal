@@ -1,0 +1,32 @@
+<html>
+	<body style="text-align: center;">
+		<h2>使用说明:</h2>
+		用户可在环境设置功能中，定义全局变量，工况脚本等内容<br />
+		自定义内容的改变不会刷新服务器内存，需在软件功能-环境加载中重新载入<br />
+		服务器内存中载入正确的数据后，即可在软件功能-工况执行中进行计算<br />
+
+		<br />
+		<br />
+		<h2>项目信息</h2>
+		项目名称:自动标定系统<br />
+		项目版本:v1.0.0<br />
+		<br />
+		后台服务版本信息:<br />
+		Python 3.7.0<br />
+		<br />
+		Flask 1.0.2<br />
+		 --Jinja2 2.10<br />
+		 --MarkupSafe 1.0<br />
+		 --Werkzeug0.14.1<br />
+		 --click 6.7<br />
+		 --itsdangerous 0.24<br />
+		flask-cors 3.0.6<br />
+		 --six 1.11.0<br />
+		<br />
+		SimpleJSON 3.16.0<br />
+		<br />
+		Web端版本信息:<br />
+		layui 2.3.0<br />
+		jquery 1.8.2<br />
+	</body>
+</html>

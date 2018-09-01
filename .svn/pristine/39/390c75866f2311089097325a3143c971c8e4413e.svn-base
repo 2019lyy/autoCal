@@ -1,0 +1,264 @@
+"""这个类在目前是用不上的，数据在运行时加载而不是在服务器启动时加载"""
+import sqlite3
+import json
+
+from flask import Blueprint
+from threading import Timer
+
+from .settings import settings
+from .db import get_db
+from .logger import logger
+
+#存储用户自定义输入变量
+user_var_input = {}
+
+#存储用户自定义输出变量
+user_var_output = {}
+
+#存储工况信息的字典
+user_condition = {}
+
+#存储全局工况的字典
+global_entry = {}
+
+#变量键值对列表，用作json返回或数据记录
+input_list = []
+output_list = []
+
+#运行状态，标记工况入口，防止重复运行
+running_status = False
+
+#输入变量获取经常
+timer_input = None
+
+#全局工况进程
+timer_global_entry = None
+#全局工况计数器
+counter_global_entry = 1
+
+from .model import *
+
+"""输入变量刷新进程代码块"""
+#定时任务，用以刷新输入参数
+def get_all_input():
+	global timer_input
+	global user_var_input
+	for key in user_var_input:
+		user_var_input[key].set_value()
+	timer_input = Timer(settings.input_interval, get_all_input)
+	timer_input.start()
+
+#创建定时任务对象
+def makeTimer():
+	global timer_input
+	timer_input = Timer(settings.input_interval, get_all_input)
+	timer_input.start()
+
+"""全局工况加载相关代码块"""
+
+def runGlobalEntry():
+	global global_entry
+	global timer_global_entry
+	global counter_global_entry
+	global user_var_input
+	global user_var_output
+	for key in global_entry:
+		if (counter_global_entry % key == 0):
+			for temp in global_entry[key]:
+				#实际执行每一条全局工况
+				if (temp.get('code')):
+					exec(temp.get('code'))
+				if (temp.get('input_var') and temp.get('input_code') and temp.get('output_var') and temp.get('output_code')):
+					exec("if(user_var_input.get(temp.get('input_var')).value " + temp.get('input_code') + "):\
+						\n	code_str = temp.get('output_code')\
+						\n	if code_str.startswith('='):\
+						\n		code_str = code_str[1:]\
+						\n		user_var_output[temp.get('output_var')].value = float(code_str)\
+						\n	else:\
+						\n		user_var_output[temp.get('output_var')].value = user_var_output[temp.get('output_var')].value " + temp.get('output_code'))
+					user_var_output[temp.get('output_var')].put_value()
+	counter_global_entry = counter_global_entry + 1
+	timer_global_entry = Timer(settings.global_base_interval, runGlobalEntry)
+	timer_global_entry.start()
+
+def makeTimerGlobalEntry():
+	global timer_global_entry
+	global counter_global_entry
+	counter_global_entry = 1
+	timer_global_entry = Timer(settings.global_base_interval, runGlobalEntry)
+	timer_global_entry.start()
+
+"""文件记录相关代码块"""
+def logStart():
+	logger.append('开启文件记录功能')
+
+def logFinish():
+	logger.append('释放文件记录资源')
+
+
+"""工况执行代码块"""
+
+#工况运行结束，释放资源
+def finish():
+	global timer_input
+	global timer_global_entry
+	global running_status
+	logger.append('全部工况执行完毕')
+	running_status = False
+	timer_input.cancel()
+	timer_input = None
+	timer_global_entry.cancel()
+	timer_global_entry = None
+
+bp = Blueprint('work', __name__, url_prefix='/work')
+
+#加载全部运行环境
+def init_env():
+	global user_var_input
+	global user_var_output
+	global user_condition
+	global global_entry
+	global timer
+	db = get_db()
+	#加载输入变量
+	if (settings.debug_mode):
+		logger.append('输入变量清空')
+	user_var_input.clear()
+	if (settings.debug_mode):
+		logger.append('输入变量加载中')
+	input_rows = db.execute('SELECT * from user_static_var WHERE is_input = 1').fetchall()
+	for temp in input_rows:
+		user_var_input[temp.get('id')] = User_var_input(temp.get('id'), temp.get('c_name'), temp.get('e_name'), temp.get('code'))
+	if (settings.debug_mode):
+		logger.append('输入变量加载完成')
+
+	#输入变量开始循环加载
+	makeTimer()
+
+	#加载输出变量
+	if (settings.debug_mode):
+		logger.append('输出变量清空')
+	user_var_output.clear()
+	if (settings.debug_mode):
+		logger.append('输出变量加载中')
+	output_rows = db.execute('SELECT * from user_static_var WHERE is_input = 0').fetchall()
+	for temp in output_rows:
+		user_var_output[temp.get('id')] = User_var_output(temp.get('id'), temp.get('c_name'), temp.get('e_name'), temp.get('code'), temp.get('min_value'), temp.get('max_value'))
+	if (settings.debug_mode):
+		logger.append('输出变量加载完成')
+
+	#变量加载完毕，开始加载全局工况
+	if (settings.debug_mode):
+		logger.append('全局工况清空')
+	global_entry.clear()
+	if (settings.debug_mode):
+		logger.append('全局工况加载中')
+	global_entry_rows = db.execute('SELECT * from user_global_entry WHERE open = 1').fetchall()
+	for temp in global_entry_rows:
+		#如果该时间频率的列表还未创建，则创建相应的列表
+		if (global_entry.get(temp.get('multiple')) == None):
+			global_entry[temp.get('multiple')] = []
+		#将全局工况加载入执行列表中
+		global_entry[temp.get('multiple')].append(temp)
+	if (settings.debug_mode):
+		logger.append('全局工况加载完成')
+	#加载完毕后输出测试
+	# for key in global_entry:
+	# 	for temp in global_entry[key]:
+	# 		logger.append('全局工况名称:' + temp.get('c_name') + ' ，执行频率:' + str(key))
+
+	#全局工况开始运行
+	runGlobalEntry()
+	if (settings.debug_mode):
+		logger.append('全局开始运行')
+
+	#加载工况及条目
+	if (settings.debug_mode):
+		logger.append('运行工况清空')
+	user_condition.clear()
+	if (settings.debug_mode):
+		logger.append('运行工况加载中')
+	#首先将工况加载为字典，id作为其主键
+	output_rows = db.execute('SELECT * FROM user_condition').fetchall()
+	for temp in output_rows:
+		user_condition[temp.get('id')] = User_condition(temp.get('id'), temp.get('c_name'))
+	#循环遍历工况，为每个工况加载条目，在条目中需要加载变量计算code
+	for key in user_condition:
+		#按序加载工况条目，填充进入工况对象
+		output_rows = db.execute(
+			'SELECT * from user_condition_entry WHERE con_id = ? ORDER BY seq ASC',
+			(key,)
+		).fetchall()
+		for temp in output_rows:
+			#创建一个条目并填充进入工况中的list
+			temp_entry = User_condition_entry(temp.get('id'), temp.get('con_id'), temp.get('duration'), temp.get('code'), user_condition[key].c_name)
+			#查询条目中的变量计算，并填充进入条目
+			entry_cal = db.execute(
+				'SELECT * from user_var_entry WHERE con_id = ? AND entry_id = ?',
+				(key, temp.get('id'))
+			).fetchall()
+			temp_entry.var_entry_list = entry_cal
+			#将entry条目保存至工况
+			user_condition[key].entry_list.append(temp_entry)
+		#遍历本条工况中的entry_list，为所有条目制定next属性
+		for x in range(len(user_condition[key].entry_list)):
+			if (x < len(user_condition[key].entry_list) - 1):
+				user_condition[key].entry_list[x].next_entry = user_condition[key].entry_list[x + 1]
+		if (settings.debug_mode):
+			logger.append('工况 ' + user_condition[key].c_name + ' 加载完成')
+	if (settings.debug_mode):
+		logger.append('运行工况全部加载完成')
+
+#执行运行
+@bp.route('/run/<con_id>')
+def run(con_id):
+	global user_condition
+	global running_status
+	if (not running_status):
+		running_status = True
+		init_env()
+		user_condition[int(con_id)].run()
+		finish()
+		return json.dumps({'msg' : 'ok'})
+	return json.dumps({'msg' : 'err'})
+
+#运行并记录
+@bp.route('/runAndLog/<con_id>')
+def runAndLog(con_id):
+	global user_condition
+	global running_status
+	if (not running_status):
+		running_status = True
+		init_env()
+		logStart()
+		user_condition[int(con_id)].run()
+		logFinish()
+		finish()
+		return json.dumps({'msg' : 'ok'})
+	return json.dumps({'msg' : 'err'})
+
+#前端获取变量展示刷新频率
+@bp.route('/frontInterval')
+def frontInterval():
+	global settings
+	return json.dumps(settings.front_interval)
+
+#向前端返回所有变量状态
+@bp.route('/showAll')
+def showAll():
+	global user_var_input
+	global user_var_output
+	global input_list
+	global output_list
+	input_list.clear()
+	output_list.clear()
+	for key in user_var_input:
+		input_list.append({'name' : user_var_input[key].c_name,  'value' : user_var_input[key].value})
+	for key in user_var_output:
+		output_list.append({'name' : user_var_output[key].c_name,  'value' : user_var_output[key].value})
+	result = {
+		'input' : input_list,
+		'output' : output_list
+	}
+	return json.dumps(result)
+

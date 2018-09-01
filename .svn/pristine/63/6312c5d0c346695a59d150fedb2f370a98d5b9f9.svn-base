@@ -1,0 +1,70 @@
+#用户进行系统配置接口
+#系统配置的持久化保存
+import functools
+import json
+
+from flask import (
+	Blueprint, g, render_template, url_for, request
+)
+
+from .db import get_db
+
+bp = Blueprint('manager', __name__, url_prefix='/manager')
+
+#查询所有数据库中保存的用户自定义变量的接口
+@bp.route('/getVar')
+def getVar():
+	db = get_db()
+	result = db.execute('SELECT * from user_static_var').fetchall()
+	return json.dumps(result)
+
+#获取一个特定的变量信息
+@bp.route('/getVar/<id>')
+def getVarById(id):
+	db = get_db()
+	result = db.execute('SELECT * from user_static_var WHERE id = ' + id).fetchone()
+	return json.dumps(result)
+
+#新增自定义变量，保证code唯一
+@bp.route('/createVar', methods=['POST'])
+def createVar():
+	db = get_db()
+	rows = db.execute('SELECT * from user_static_var WHERE code = \'' + request.form['code'] + '\'').fetchone()
+	if (rows):
+		return json.dumps({'msg' : 'dup'})
+	else:
+		db.execute(
+			'INSERT INTO user_static_var (c_name, e_name, code, is_input) VALUES (?, ?, ?, ?)',
+			(request.form['c_name'], request.form['e_name'], request.form['code'], request.form['is_input'])
+		)
+		db.commit()
+		return json.dumps({'msg' : 'ok'})
+
+#变量修改方法POST
+@bp.route('/modifyVar', methods=['POST'])
+def modifyVar():
+	db = get_db()
+	#仍然需要确保code的唯一性
+	rows = db.execute('SELECT * from user_static_var WHERE code = \'' + request.form['code'] + '\'').fetchone()
+	if (rows):
+		return json.dumps({'msg' : 'dup'})
+	else :
+		db.execute(
+			'UPDATE user_static_var SET c_name = ?, e_name = ?, code = ?, is_input = ? WHERE id = ?',
+			(request.form['c_name'], request.form['e_name'], request.form['code'], request.form['is_input'], request.form['id'])
+		)
+		db.commit()
+		return json.dumps({'msg' : 'ok'})
+
+#删除变量
+@bp.route('/deleteVar', methods=['GET'])
+def deleteVar():
+	db = get_db()
+	var_id = request.args.to_dict().get('id', '')
+	if (var_id):
+		db.execute(
+			'DELETE FROM user_static_var WHERE id = ' + var_id
+		)
+		db.commit()
+		return json.dumps({'msg' : 'ok'})
+	return json.dumps({'msg' : 'err'})
